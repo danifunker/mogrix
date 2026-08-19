@@ -1,0 +1,54 @@
+# libsodium — NaCl-derived crypto library.
+#
+# Built for IRIX 6.5 n32 with NO source patches. Verified against 1.0.18 by
+# cross-building from the upstream tarball and exercising Ed25519 combined-form
+# sign/verify, X25519 crypto_box with a zero nonce, and XSalsa20-Poly1305
+# secretbox with a counter nonce.
+#
+# TWO THINGS WORTH KNOWING, neither of which is a libsodium problem:
+#
+# 1. It needs the mogrix-compat header overlay on the include path, because
+#    configure finds posix_memalign at link time (dlmalloc provides it) while
+#    IRIX's own <stdlib.h> never declares it. Without the overlay the argon2
+#    core fails with "call to undeclared function 'posix_memalign'". irix-cc
+#    already adds the directory; the overlay just has to be deployed into
+#    staging, which `mogrix setup-cross` does not currently do.
+#
+# 2. Its RNG correctly selects the sysrandom (/dev/urandom) backend. IRIX has
+#    no getentropy, getrandom or arc4random, and configure detects all three as
+#    absent on its own. 6.5.22 and later do ship /dev/urandom; if a target
+#    image lacks it, libsodium's randombytes will fail at run time rather than
+#    silently returning weak bytes, which is the behaviour you want.
+#
+# 3. CONSUMERS MUST LINK -lpthread. configure finds pthreads and sets
+#    HAVE_PTHREAD, so sodium_init() takes the sodium_crit_enter() path and
+#    calls pthread_mutex_lock. IRIX resolves that symbol at link time without
+#    -lpthread -- the link succeeds and looks clean -- and then fails at run
+#    time, so sodium_init() returns -1. Measured on 6.5.22m/R5000: every
+#    crypto_* call still worked, and only sodium_init reported failure, which
+#    is exactly the shape of bug that gets shrugged off and shipped. Add
+#    -lpthread and it returns 0. Verified: Ed25519 combined-form sign/verify,
+#    crypto_box with a zero nonce, and secretbox with a counter nonce all pass.
+#
+# Static only. The consumer here is a Rust binary that links it through
+# libsodium-sys, and a .so buys nothing while costing rld GOT entries.
+
+package: libsodium
+
+rules:
+
+  configure_flags:
+    add:
+      # No shared library: see above.
+      - --disable-shared
+      - --enable-static
+      # IRIX rld does not support position-independent executables.
+      - --disable-pie
+      # IRIX libc exports no __stack_chk_fail/__stack_chk_guard; irix-cc
+      # already passes -fno-stack-protector, and leaving configure's own
+      # probe enabled just adds a flag clang then warns about.
+      - --disable-ssp
+
+  # No prep_commands, no spec_replacements, no patches: the source is clean
+  # for this target as it stands. If that changes, the first thing to check is
+  # %zu in a newly added file — see rules/methods/irix-quirks.md.

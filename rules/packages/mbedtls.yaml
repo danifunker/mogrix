@@ -1,0 +1,59 @@
+# mbedTLS 3.6 LTS — TLS for IRIX 6.5 n32.
+#
+# Verified on IRIX 6.5.22m / R5000: mbedTLS's own selftest runs **30 test
+# suites, all passing** — AES, ARIA, CAMELLIA, the SHA family, RSA, ECP,
+# ECJPAKE, CTR_DRBG, HMAC_DRBG, PBKDF2, DHM and the entropy source. That last
+# one matters on its own: it confirms mbedtls_platform_entropy_poll reaches
+# /dev/urandom on IRIX with no help, so the TLS stack seeds itself properly.
+#
+# Big-endian is the reason to run the whole suite rather than smoke-test it.
+# 32-bit big-endian is the least-exercised configuration upstream has, and a
+# byte-order fault in a cipher does not fail the build.
+#
+# TWO PATCHES, both genuine IRIX interactions rather than mbedTLS bugs:
+#
+# 1. net_sockets.c defines _POSIX_C_SOURCE and _XOPEN_SOURCE at the top, with
+#    the comment "Enable definition of getaddrinfo() ... Harmless on other
+#    platforms." On IRIX it does exactly the opposite. IRIX's <netdb.h> gates
+#    getaddrinfo, freeaddrinfo, getnameinfo and `struct addrinfo` behind
+#    `#if _NO_XOPEN4 && _NO_XOPEN5` — the SGI-native namespace — so selecting
+#    an X/Open profile HIDES them, and the file dies on "variable has
+#    incomplete type 'struct addrinfo'". sockaddr_storage, the other reason
+#    the define is there, is unconditional on 6.5.22. On IRIX the correct
+#    feature-test profile is none at all.
+#
+# 2. MBEDTLS_NO_UDBL_DIVISION is turned on. n32 has 64-bit registers, so clang
+#    offers __int128 and mbedTLS's bignum code uses it — which needs __udivti3
+#    from libgcc. That is available (staging's libgcc_s.so.1 has it), but
+#    linking it makes every consumer carry a libgcc_s.so.1 runtime dependency
+#    that IRIX's rld then has to find on the target. For a security library
+#    that is a bad trade for a marginal speedup in bignum division, and
+#    mbedTLS ships this option for precisely this situation. With it on, the
+#    binaries need only libpthread and libc.
+#
+# CONSUMERS MUST LINK -lpthread, and in this order: -lmbedtls -lmbedx509
+# -lmbedcrypto. Same runtime-only pthread trap as libsodium and libvpx.
+#
+# DO NOT RUN `make install`. It depends on the `programs` target, whose
+# sub-make loses CC and falls back to the host linker — the failure is
+# "relocations in generic ELF (EM: 8)", which names the wrong culprit. Install
+# include/mbedtls, include/psa and the three archives directly.
+#
+# Also required, and provided by the mogrix-compat header overlay rather than
+# by a patch here: CLOCK_MONOTONIC. platform_util.c calls
+# clock_gettime(CLOCK_MONOTONIC, ...) and IRIX has the clock only as
+# CLOCK_SGI_CYCLE. See compat/include/mogrix-compat/generic/time.h.
+
+package: mbedtls
+
+rules:
+
+  patches:
+    - mbedtls-irix-no-xopen-hides-getaddrinfo.patch
+    - mbedtls-irix-no-udbl-division.patch
+
+  export_vars:
+    SHARED: ""                      # static only; IRIX rld GOT pressure
+    CFLAGS: "-O2"
+
+  make_target: lib                  # NOT `all`, and NOT `install`; see above

@@ -162,7 +162,7 @@ fi
 # Uses raw clang (not irix-cc) because safe_mem.c is freestanding — it has its own
 # size_t typedef that conflicts with the sysroot headers irix-cc force-includes.
 RAW_CLANG="${CROSS}/clang"
-if "$RAW_CLANG" --target=mips-sgi-irix6.5 -mabi=n32 -march=mips3 -w -c \
+if "$RAW_CLANG" --target=mips-sgi-irix6.5 -mabi=n32 -march=mips3 -O2 -fno-builtin -w -c \
     "${MOGRIX_DIR}/cross/lib/safe_mem.c" \
     -o "${TMPDIR}/safe_mem.o" 2>/dev/null; then
     cp "${TMPDIR}/safe_mem.o" "${STAGING}/lib32/safe_mem.o"

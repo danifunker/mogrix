@@ -35,7 +35,7 @@
 # Configurable paths - set by mogrix setup-cross or environment
 SYSROOT="${IRIX_SYSROOT:-/opt/irix-sysroot}"
 STAGING="${SGUG_STAGING:-/opt/sgug-staging/usr/sgug}"
-LLD="${IRIX_LLD:-/home/edodd/projects/github/unxmaal/mogrix/tools/bin/ld.lld-irix-18}"
+LLD="${IRIX_LLD:-/opt/cross/bin/ld.lld-irix}"
 
 # Filter out flags that don't apply to clang/lld and detect -shared
 is_shared=0

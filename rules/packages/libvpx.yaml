@@ -1,0 +1,64 @@
+# libvpx — VP8/VP9 codec. Built for IRIX 6.5 n32 as VP8-encoder-only.
+#
+# Verified on IRIX 6.5.22m / R5000 with a full encode -> decode round trip at
+# 1280x1024, 640x512 and 320x256: every frame decodes, geometry is right, and Y
+# mean absolute error is 0.4-2.0 against the source. That matters more than it
+# sounds -- libvpx here is the portable C build on a 32-bit BIG-ENDIAN target,
+# which is the configuration least exercised upstream, and a byte-order fault
+# would not have failed the build, only the picture.
+#
+# ONE SOURCE PATCH IS NEEDED, and it is a genuine IRIX collision:
+#
+#   vpx_util/vpx_thread.c declares `static int sync(VPxWorker *const)`, and
+#   IRIX's <unistd.h> declares `extern void sync(void)` at line 446. clang
+#   rejects the static as conflicting with the non-static declaration already
+#   in scope. Renamed to sync_worker(). Note the struct member `winterface->sync`
+#   is a DIFFERENT thing and must not be renamed with it -- see the patch.
+#
+# BUILD THE LIBRARY TARGET, NOT `all`. `make` alone also builds libvpxrc.a,
+# the C++ rate-control-RTC interface, from vp8_ratectrl_rtc.cc. That needs a
+# C++ standard library the cross toolchain has no headers for, so it dies on
+# `'new' file not found` -- for a library nothing here links. `make libvpx.a`
+# skips it entirely and needs no patch to libs.mk.
+#
+# --disable-webm-io --disable-libyuv are NOT optional. Both are C++, and
+# leaving them on makes configure pick the HOST g++ as the linker, which then
+# fails with "relocations in generic ELF (EM: 8)" -- i.e. it is feeding MIPS
+# objects to an x86 linker. The error names the wrong culprit, so it is worth
+# knowing the cause is these two flags.
+#
+# CONSUMERS MUST LINK -lpthread. Same trap as libsodium: libvpx's threading is
+# pthreads, the symbols resolve at link time on IRIX without -lpthread, and the
+# failure only shows at run time.
+#
+# No %zu anywhere in the encoder path, checked -- unusually clean for a modern
+# C package. See rules/methods/irix-quirks.md for why that is worth checking.
+
+package: libvpx
+
+rules:
+
+  patches:
+    - libvpx-irix-sync-name-collision.patch
+
+  configure_flags:
+    add:
+      - --target=generic-gnu        # no MIPS asm: the MSA/mmi paths upstream
+                                    # has are for Loongson/MSA parts, and no
+                                    # CPU that runs IRIX has either.
+      - --disable-shared
+      - --enable-static
+      - --enable-vp8-encoder
+      - --enable-vp8-decoder        # small, and it lets a target-side test
+                                    # round-trip its own output
+      - --disable-vp9-encoder
+      - --disable-vp9-decoder
+      - --disable-examples
+      - --disable-tools
+      - --disable-docs
+      - --disable-unit-tests
+      - --disable-runtime-cpu-detect
+      - --disable-webm-io           # C++; see above
+      - --disable-libyuv            # C++; see above
+
+  make_target: libvpx.a             # NOT `all`; see above

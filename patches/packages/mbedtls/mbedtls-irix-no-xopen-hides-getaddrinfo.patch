@@ -1,0 +1,26 @@
+--- a/library/net_sockets.c
++++ b/library/net_sockets.c
+@@ -8,12 +8,23 @@
+ /* Enable definition of getaddrinfo() even when compiling with -std=c99. Must
+  * be set before mbedtls_config.h, which pulls in glibc's features.h indirectly.
+  * Harmless on other platforms. */
++#if defined(__sgi)
++/* IRIX gates getaddrinfo(), freeaddrinfo(), getnameinfo() and struct addrinfo
++ * behind `#if _NO_XOPEN4 && _NO_XOPEN5` in <netdb.h> -- i.e. they are visible
++ * only in the SGI-native namespace. Selecting an X/Open profile here does the
++ * exact opposite of what the comment above expects: it sets _NO_XOPEN5 to 0
++ * and hides every one of them, and the file then fails to compile on
++ * "variable has incomplete type 'struct addrinfo'". sockaddr_storage, the
++ * other thing _XOPEN_SOURCE is asked for here, is unconditional on 6.5.22.
++ * So on IRIX the correct feature-test profile is: none. */
++#else
+ #ifndef _POSIX_C_SOURCE
+ #define _POSIX_C_SOURCE 200112L
+ #endif
+ #ifndef _XOPEN_SOURCE
+ #define _XOPEN_SOURCE 600 /* sockaddr_storage */
+ #endif
++#endif /* __sgi */
+ 
+ #include "common.h"
+ 

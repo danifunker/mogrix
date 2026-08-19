@@ -13,7 +13,7 @@ dependencies = [
     "click>=8.0",
     "rich>=13.0",
     "specfile>=0.38.0",
-    "mcm-engine @ file:///home/edodd/projects/github/unxmaal/mcm-engine",
+    "mcm-engine @ git+https://github.com/unxmaal/mcm-engine",
 ]
 
 [project.optional-dependencies]
