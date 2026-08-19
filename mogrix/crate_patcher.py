@@ -44,7 +44,15 @@ from mogrix.text_transforms import (
 
 log = logging.getLogger(__name__)
 
-REGISTRY_BASE = os.path.expanduser("~/.cargo/registry/src")
+# Honour CARGO_HOME. Patching rewrites crate sources in place, so a machine
+# where two IRIX efforts share ~/.cargo would have one silently rewriting the
+# other's registry; pointing CARGO_HOME at a private tree is the only way to
+# isolate them, and cargo itself already respects it.
+REGISTRY_BASE = os.path.join(
+    os.environ.get("CARGO_HOME") or os.path.expanduser("~/.cargo"),
+    "registry",
+    "src",
+)
 
 
 class PatchError:

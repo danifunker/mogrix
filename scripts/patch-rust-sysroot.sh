@@ -154,9 +154,16 @@ failures = 0
 def patch_file(relpath, patches):
     """Apply text replacements to a file. Each patch is (old, new).
     A patch is only applied if old is present AND new is not already present.
-    This makes patches idempotent."""
+    This makes patches idempotent.
+
+    A missing file is reported and skipped rather than fatal: std moves modules
+    between nightlies (sys/pal/unix/os.rs became sys/paths/unix.rs), and a
+    hard failure there stops every later patch from being applied at all."""
     global failures
     filepath = os.path.join(STD_SRC, relpath)
+    if not os.path.exists(filepath):
+        print(f"  {relpath} (not in this std tree, skipped)")
+        return
     with open(filepath) as f:
         content = f.read()
 
@@ -188,6 +195,8 @@ def repair_file(relpath, repairs):
     Each repair is (broken_text, correct_text). Only applies if broken_text is present."""
     global failures
     filepath = os.path.join(STD_SRC, relpath)
+    if not os.path.exists(filepath):
+        return
     with open(filepath) as f:
         content = f.read()
 
@@ -217,6 +226,9 @@ def repair_file(relpath, repairs):
 patch_file("os/mod.rs", [
     ('    #[cfg(target_os = "hurd")]\n    pub mod hurd;',
      '    #[cfg(target_os = "hurd")]\n    pub mod hurd;\n    #[cfg(target_os = "irix")]\n    pub mod irix;'),
+    # 2026-08 nightlies list the modules at column 0, outside any cfg_if block.
+    ('#[cfg(target_os = "hurd")]\npub mod hurd;',
+     '#[cfg(target_os = "hurd")]\npub mod hurd;\n#[cfg(target_os = "irix")]\npub mod irix;'),
 ])
 
 # ---------------------------------------------------------------------------
@@ -225,6 +237,10 @@ patch_file("os/mod.rs", [
 patch_file("os/unix/mod.rs", [
     ('#[cfg(target_os = "illumos")]\npub use crate::os::illumos::*;',
      '#[cfg(target_os = "illumos")]\npub use crate::os::illumos::*;\n#[cfg(target_os = "irix")]\npub use crate::os::irix::*;'),
+    # 2026-08 nightlies put these inside an indented block.
+    ('    #[cfg(target_os = "illumos")]\n    pub use crate::os::illumos::*;',
+     '    #[cfg(target_os = "illumos")]\n    pub use crate::os::illumos::*;\n'
+     '    #[cfg(target_os = "irix")]\n    pub use crate::os::irix::*;'),
 ])
 
 # ---------------------------------------------------------------------------
@@ -285,6 +301,14 @@ repair_file("sys/random/mod.rs", [
 patch_file("sys/random/mod.rs", [
     ('        target_os = "aix",\n        target_os = "hurd",\n        target_os = "l4re",\n        target_os = "nto",\n    ) => {\n        mod unix_legacy;',
      '        target_os = "aix",\n        target_os = "hurd",\n        target_os = "irix",\n        target_os = "l4re",\n        target_os = "nto",\n    ) => {\n        mod unix_legacy;'),
+    # 2026-08 nightlies: the unix_legacy group is aix/hurd/l4re/nto/qnx.
+    ('    any(\n        target_os = "aix",\n        target_os = "hurd",\n'
+     '        target_os = "l4re",\n        target_os = "nto",\n        target_os = "qnx",\n'
+     '    ) => {\n        mod unix_legacy;',
+     '    any(\n        target_os = "aix",\n        target_os = "hurd",\n'
+     '        target_os = "irix",\n'
+     '        target_os = "l4re",\n        target_os = "nto",\n        target_os = "qnx",\n'
+     '    ) => {\n        mod unix_legacy;'),
 ])
 
 # ---------------------------------------------------------------------------
@@ -297,6 +321,15 @@ repair_file("sys/pal/unix/os.rs", [
      '#[cfg(target_os = "haiku")]\npub fn current_exe'),
 ])
 patch_file("sys/pal/unix/os.rs", [
+    ('#[cfg(target_os = "aix")]\npub fn current_exe',
+     '#[cfg(any(target_os = "aix", target_os = "irix"))]\npub fn current_exe'),
+])
+# 2026-08 nightlies moved current_exe out of the pal layer into sys/paths/.
+repair_file("sys/paths/unix.rs", [
+    ('#[cfg(any(target_os = "haiku", target_os = "irix"))]\npub fn current_exe',
+     '#[cfg(target_os = "haiku")]\npub fn current_exe'),
+])
+patch_file("sys/paths/unix.rs", [
     ('#[cfg(target_os = "aix")]\npub fn current_exe',
      '#[cfg(any(target_os = "aix", target_os = "irix"))]\npub fn current_exe'),
 ])
@@ -314,6 +347,20 @@ patch_file("sys/fd/unix.rs", [
     # Inclusion list for fcntl(F_SETFD): add irix before wasi
     ('        target_os = "nto",\n        target_os = "wasi",\n    )]\n    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n            let previous = cvt(libc::fcntl(self.as_raw_fd(), libc::F_GETFD))?;',
      '        target_os = "nto",\n        target_os = "irix",\n        target_os = "wasi",\n    )]\n    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n            let previous = cvt(libc::fcntl(self.as_raw_fd(), libc::F_GETFD))?;'),
+    # 2026-08 nightlies: qnx joined the list and the exclusion closes with
+    # three parens (it wraps an all(...) for newlib).
+    ('        target_os = "qnx",\n        target_os = "wasi",\n    )))]\n'
+     '    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n'
+     '            cvt(libc::ioctl(self.as_raw_fd(), libc::FIOCLEX))?;',
+     '        target_os = "qnx",\n        target_os = "irix",\n        target_os = "wasi",\n    )))]\n'
+     '    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n'
+     '            cvt(libc::ioctl(self.as_raw_fd(), libc::FIOCLEX))?;'),
+    ('        target_os = "qnx",\n        target_os = "wasi",\n    ))]\n'
+     '    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n'
+     '            let previous = cvt(libc::fcntl(self.as_raw_fd(), libc::F_GETFD))?;',
+     '        target_os = "qnx",\n        target_os = "irix",\n        target_os = "wasi",\n    ))]\n'
+     '    pub fn set_cloexec(&self) -> io::Result<()> {\n        unsafe {\n'
+     '            let previous = cvt(libc::fcntl(self.as_raw_fd(), libc::F_GETFD))?;'),
 ])
 
 # ---------------------------------------------------------------------------
@@ -405,7 +452,90 @@ patch_file("sys/fs/unix.rs", [
         '        CStr::from_ptr(r).to_bytes().to_vec()\n'
         '    })))\n'
         '}'
+    ),    # 2026-08 nightlies: IRIX's dirent has no d_type, so it must stay out of
+    # the DirEntry::file_type variant that reads self.entry.d_type and join the
+    # stat() fallback instead. Both lists end with vita.
+    (
+        '        target_os = "aix",\n'
+        '        target_os = "nto",\n'
+        '        target_os = "qnx",\n'
+        '        target_os = "vita",\n'
+        '    )))]\n'
+        '    pub fn file_type(&self) -> io::Result<FileType> {\n'
+        '        match self.entry.d_type {',
+        '        target_os = "aix",\n'
+        '        target_os = "nto",\n'
+        '        target_os = "qnx",\n'
+        '        target_os = "vita",\n'
+        '        target_os = "irix",\n'
+        '    )))]\n'
+        '    pub fn file_type(&self) -> io::Result<FileType> {\n'
+        '        match self.entry.d_type {'
+    ),    # ...and into the stat() fallback, or DirEntry has no file_type at all.
+    (
+        '        target_os = "aix",\n'
+        '        target_os = "nto",\n'
+        '        target_os = "qnx",\n'
+        '        target_os = "vita",\n'
+        '    ))]\n'
+        '    pub fn file_type(&self) -> io::Result<FileType> {\n'
+        '        self.metadata().map(|m| m.file_type())',
+        '        target_os = "aix",\n'
+        '        target_os = "nto",\n'
+        '        target_os = "qnx",\n'
+        '        target_os = "vita",\n'
+        '        target_os = "irix",\n'
+        '    ))]\n'
+        '    pub fn file_type(&self) -> io::Result<FileType> {\n'
+        '        self.metadata().map(|m| m.file_type())'
     ),
+    # IRIX's dirent does have d_ino, so join the ino() group that reads it.
+    (
+        '        target_vendor = "apple",\n'
+        '    ))]\n'
+        '    pub fn ino(&self) -> u64 {\n'
+        '        self.entry.d_ino as u64',
+        '        target_vendor = "apple",\n'
+        '        target_os = "irix",\n'
+        '    ))]\n'
+        '    pub fn ino(&self) -> u64 {\n'
+        '        self.entry.d_ino as u64'
+    ),    # remove_dir_all's is_dir() reads d_type too; IRIX takes the None arm and
+    # lets the caller fall back to stat.
+    (
+        '        target_os = "vxworks",\n'
+        '        target_os = "aix",\n'
+        '    ))]\n'
+        '    fn is_dir(_ent: &DirEntry) -> Option<bool> {',
+        '        target_os = "vxworks",\n'
+        '        target_os = "aix",\n'
+        '        target_os = "irix",\n'
+        '    ))]\n'
+        '    fn is_dir(_ent: &DirEntry) -> Option<bool> {'
+    ),
+    (
+        '        target_os = "vxworks",\n'
+        '        target_os = "aix",\n'
+        '    )))]\n'
+        '    fn is_dir(ent: &DirEntry) -> Option<bool> {',
+        '        target_os = "vxworks",\n'
+        '        target_os = "aix",\n'
+        '        target_os = "irix",\n'
+        '    )))]\n'
+        '    fn is_dir(ent: &DirEntry) -> Option<bool> {'
+    ),
+])
+
+# ---------------------------------------------------------------------------
+# os/unix/process.rs: IRIX uid_t/gid_t are signed
+#
+# IRIX typedefs __uid_t as __int32_t, so the libc crate gives irix i32 (grouped
+# with nto/qnx). CommandExt's UserId/GroupId must agree or every uid/gid call in
+# std fails to typecheck.
+# ---------------------------------------------------------------------------
+patch_file("os/unix/process.rs", [
+    ('    any(target_os = "nto", target_os = "qnx") => {',
+     '    any(target_os = "nto", target_os = "qnx", target_os = "irix") => {'),
 ])
 
 # ---------------------------------------------------------------------------
