@@ -41,6 +41,50 @@ rules:
   patches:
     - libvpx-irix-sync-name-collision.patch
 
+  # Fedora's spec calls `./configure` directly rather than %configure, and its
+  # arch ladder has no MIPS branch -- MIPS falls through to generic-gnu, which
+  # is the target we want, but every other flag on that line is wrong for us.
+  # configure_flags cannot help here because there is no %configure to hook, so
+  # the invocation is rewritten instead. Verified against the f40 spec.
+  spec_replacements:
+    # VP8 only, no C++, static. See the notes above for why webm-io and libyuv
+    # are not optional and why --enable-shared has to go.
+    - pattern: |
+        ./configure --target=%{vpxtarget} \
+        --enable-pic --disable-install-srcs \
+        --enable-vp9-decoder --enable-vp9-encoder \
+        --enable-experimental \
+        --enable-vp9-highbitdepth \
+        --enable-debug \
+      replacement: |
+        ./configure --target=%{vpxtarget} \
+        --disable-shared --enable-static \
+        --enable-vp8-encoder --enable-vp8-decoder \
+        --disable-vp9-encoder --disable-vp9-decoder \
+        --disable-examples --disable-tools --disable-docs --disable-unit-tests \
+        --disable-runtime-cpu-detect --disable-webm-io --disable-libyuv \
+        --disable-install-srcs \
+    # generic_target is 0 in both arms of the spec's own %if, so this would
+    # otherwise pass --enable-shared regardless. Static only on IRIX: a .so
+    # costs rld GOT entries for something nothing here links.
+    #
+    # The replacement is EMPTY on purpose. These lines sit inside a backslash
+    # continuation, so a comment here would swallow the rest of the invocation:
+    # the shell ignores everything after `#`, --prefix and --libdir would be
+    # dropped, and then run as a command of their own on the next line.
+    - pattern: |
+        %if ! %{generic_target}
+        --enable-shared \
+        %endif
+      replacement: ""
+    - pattern: "--enable-install-srcs \\\n"
+      replacement: ""
+    # Build the library only. `make` alone also builds libvpxrc.a from
+    # vp8_ratectrl_rtc.cc, which needs a C++ standard library the cross
+    # toolchain has no headers for and dies on `'new' file not found`.
+    - pattern: "%make_build verbose=true"
+      replacement: "%make_build verbose=true libvpx.a"
+
   configure_flags:
     add:
       - --target=generic-gnu        # no MIPS asm: the MSA/mmi paths upstream
@@ -61,4 +105,7 @@ rules:
       - --disable-webm-io           # C++; see above
       - --disable-libyuv            # C++; see above
 
-  make_target: libvpx.a             # NOT `all`; see above
+  # `make_target` was used here and is NOT a key the engine implements -- it
+  # appears in no Python file, so it was silently ignored and the spec built
+  # `all`, which is exactly what the note above says must not happen. Expressed
+  # as a spec_replacement, which the engine does implement.

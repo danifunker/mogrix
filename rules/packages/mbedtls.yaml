@@ -56,4 +56,20 @@ rules:
     SHARED: ""                      # static only; IRIX rld GOT pressure
     CFLAGS: "-O2"
 
-  make_target: lib                  # NOT `all`, and NOT `install`; see above
+  # `make_target` was used here and is NOT a key the engine implements -- it
+  # appears in no Python file and was silently ignored. It also described the
+  # wrong build: the notes above were written against a hand build from the
+  # upstream tarball's Makefile, while Fedora's spec builds mbedTLS with cmake.
+  # SHARED= and `make lib` mean nothing to it.
+  #
+  # The cmake equivalent is below. RENDERING is verified -- `mogrix convert`
+  # produces the invocation shown -- but it has NOT been built, because no host
+  # here has rpmbuild. Treat the flags as reviewed, not as tested.
+  spec_replacements:
+    # Static only: a shared mbedTLS costs rld GOT entries for something nothing
+    # here links, and the agent links the .a through tls_shim.c.
+    - pattern: "\t-DUSE_SHARED_MBEDTLS_LIBRARY=ON \\\n\t-DUSE_STATIC_MBEDTLS_LIBRARY=OFF \\\n"
+      replacement: "\t-DUSE_SHARED_MBEDTLS_LIBRARY=OFF \\\n\t-DUSE_STATIC_MBEDTLS_LIBRARY=ON \\\n"
+    # apidoc needs doxygen, which is dropped from BuildRequires for IRIX.
+    - pattern: "%cmake_build\nmake apidoc"
+      replacement: "%cmake_build"
